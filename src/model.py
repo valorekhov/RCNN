@@ -35,10 +35,10 @@ class Encoder(nn.Module):
         return ht[-1] if not self.config.birnn else ht[-2:].transpose(0, 1).contiguous().view(batch_size, -1)
 
 
-class SNLIClassifier(nn.Module):
+class SSTClassifier(nn.Module):
 
     def __init__(self, config):
-        super(SNLIClassifier, self).__init__()
+        super(SSTClassifier, self).__init__()
         self.config = config
         self.embed = nn.Embedding(config.n_embed, config.d_embed)
         self.projection = Linear(config.d_embed, config.d_proj)

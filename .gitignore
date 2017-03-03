@@ -1,0 +1,8 @@
+trees/
+glove*.txt
+glove*.pt
+.data_cache/
+snli_1.0/
+.idea/
+__MACOSX/
+__pycache__/
