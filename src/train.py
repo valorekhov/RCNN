@@ -9,8 +9,8 @@ import torch.nn as nn
 from torchtext import data
 from torchtext import datasets
 
-from .model import SSTClassifier
-from .util import get_args
+from model import SSTClassifier
+from util import get_args
 
 
 args = get_args()
