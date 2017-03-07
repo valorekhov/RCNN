@@ -9,7 +9,7 @@ import torch.nn as nn
 from torchtext import data
 from torchtext import datasets
 
-from model import SSTClassifier
+from model_cnn import CnnNet
 from util import get_args
 
 
@@ -19,7 +19,7 @@ args = get_args()
 inputs = data.Field(lower=args.lower)
 labels = data.Field(sequential=False)
 
-train, dev, test = datasets.SST.splits(inputs, labels, fine_grained=True, train_subtrees=True,
+train, dev, test = datasets.SST.splits(inputs, labels, fine_grained=False, train_subtrees=False,
     filter_pred=lambda ex: ex.label != 'neutral')
 
 inputs.build_vocab(train, dev, test)
@@ -45,7 +45,7 @@ if config.birnn:
 if args.resume_snapshot:
     model = torch.load(args.resume_snapshot, map_location=lambda storage, locatoin: storage.cuda(args.gpu))
 else:
-    model = SSTClassifier(config)
+    model = CnnNet(config)
     if args.word_vectors:
         model.embed.weight.data = inputs.vocab.vectors
         #model.cuda()
@@ -59,7 +59,7 @@ best_dev_acc = -1
 train_iter.repeat = False
 header = '  Time Epoch Iteration Progress    (%Epoch)   Loss   Dev/Loss     Accuracy  Dev/Accuracy'
 dev_log_template = ' '.join('{:>6.0f},{:>5.0f},{:>9.0f},{:>5.0f}/{:<5.0f} {:>7.0f}%,{:>8.6f},{:8.6f},{:12.4f},{:12.4f}'.split(','))
-log_template =     ' '.join('{:>6.0f},{:>5.0f},{:>9.0f},{:>5.0f}/{:<5.0f} {:>7.0f}%,{:>8.6f},{},{:12.4f},{}'.split(','))
+log_template = ' '.join('{:>6.0f},{:>5.0f},{:>9.0f},{:>5.0f}/{:<5.0f} {:>7.0f}%,{:>8.6f},{},{:12.4f},{}'.split(','))
 os.makedirs(args.save_path, exist_ok=True)
 print(header)
 
@@ -67,14 +67,16 @@ for epoch in range(args.epochs):
     train_iter.init_epoch()
     n_correct, n_total = 0, 0
     for batch_idx, batch in enumerate(train_iter):
-        model.train(); opt.zero_grad()
+        model.train()
+        opt.zero_grad()
         iterations += 1
         answer = model(batch)
         n_correct += (torch.max(answer, 1)[1].view(batch.label.size()).data == batch.label.data).sum()
         n_total += batch.batch_size
         train_acc = 100. * n_correct/n_total
         loss = criterion(answer, batch.label)
-        loss.backward(); opt.step()
+        loss.backward()
+        opt.step()
         if iterations % args.save_every == 0:
             snapshot_prefix = os.path.join(args.save_path, 'snapshot')
             snapshot_path = snapshot_prefix + '_acc_{:.4f}_loss_{:.6f}_iter_{}_model.pt'.format(train_acc, loss.data[0], iterations)
