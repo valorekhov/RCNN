@@ -32,6 +32,7 @@ class CNN_Text(nn.Module):
 
 
     def forward(self, x):
+        #print(x.size())
         x = self.embed(x) # (N,W,D)
         
         if self.args.static:
