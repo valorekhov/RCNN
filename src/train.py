@@ -1,110 +1,85 @@
 import os
-import time
-import glob
-
+import sys
 import torch
-import torch.optim as O
-import torch.nn as nn
-
-from torchtext import data
-from torchtext import datasets
-
-from model_cnn import CnnNet
-from util import get_args
+import torch.autograd as autograd
+import torch.nn.functional as F
 
 
-args = get_args()
-#torch.cuda.set_device(args.gpu)
+def train(train_iter, dev_iter, model, args):
+    if args.cuda:
+        model.cuda()
 
-inputs = data.Field(lower=args.lower)
-labels = data.Field(sequential=False)
+    optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
 
-train, dev, test = datasets.SST.splits(inputs, labels, fine_grained=False, train_subtrees=False,
-    filter_pred=lambda ex: ex.label != 'neutral')
+    steps = 0
+    model.train()
+    for epoch in range(1, args.epochs+1):
+        for batch in train_iter:
+            feature, target = batch.text, batch.label
+            feature.data.t_(), target.data.sub_(1)  # batch first, index align
+            if args.cuda:
+                feature, target = feature.cuda(), target.cuda()
 
-inputs.build_vocab(train, dev, test)
-if args.word_vectors:
-    if os.path.isfile(args.vector_cache):
-        inputs.vocab.vectors = torch.load(args.vector_cache)
-    else:
-        inputs.vocab.load_vectors(wv_dir=args.data_cache, wv_type=args.word_vectors, wv_dim=args.d_embed)
-        os.makedirs(os.path.dirname(args.vector_cache), exist_ok=True)
-        torch.save(inputs.vocab.vectors, args.vector_cache)
-labels.build_vocab(train)
+            optimizer.zero_grad()
+            logit = model(feature)
+            loss = F.cross_entropy(logit, target)
+            loss.backward()
+            optimizer.step()
 
-train_iter, dev_iter, test_iter = data.BucketIterator.splits(
-            (train, dev, test), batch_size=args.batch_size, device=args.gpu)
+            steps += 1
+            if steps % args.log_interval == 0:
+                corrects = (torch.max(logit, 1)[1].view(target.size()).data == target.data).sum()
+                accuracy = corrects/batch.batch_size * 100.0
+                sys.stdout.write(
+                    '\rBatch[{}] - loss: {:.6f}  acc: {:.4f}%({}/{})'.format(steps,
+                                                                             loss.data[0],
+                                                                             accuracy,
+                                                                             corrects,
+                                                                             batch.batch_size))
+            if steps % args.test_interval == 0:
+                eval(dev_iter, model, args)
+            if steps % args.save_interval == 0:
+                if not os.path.isdir(args.snapshot_save_dir): os.makedirs(args.snapshot_save_dir)
+                save_prefix = os.path.join(args.snapshot_save_dir, 'snapshot')
+                save_path = '{}_steps{}.pt'.format(save_prefix, steps)
+                torch.save(model, save_path)
 
-config = args
-config.n_embed = len(inputs.vocab)
-config.d_out = len(labels.vocab)
-config.n_cells = config.n_layers
-if config.birnn:
-    config.n_cells *= 2
 
-if args.resume_snapshot:
-    model = torch.load(args.resume_snapshot, map_location=lambda storage, locatoin: storage.cuda(args.gpu))
-else:
-    model = CnnNet(config)
-    if args.word_vectors:
-        model.embed.weight.data = inputs.vocab.vectors
-        #model.cuda()
+def eval(data_iter, model, args):
+    model.eval()
+    corrects, avg_loss = 0, 0
+    for batch in data_iter:
+        feature, target = batch.text, batch.label
+        feature.data.t_(), target.data.sub_(1)  # batch first, index align
+        if args.cuda:
+            feature, target = feature.cuda(), target.cuda()
 
-criterion = nn.CrossEntropyLoss()
-opt = O.Adam(model.parameters(), lr=args.lr)
+        logit = model(feature)
+        loss = F.cross_entropy(logit, target, size_average=False)
 
-iterations = 0
-start = time.time()
-best_dev_acc = -1
-train_iter.repeat = False
-header = '  Time Epoch Iteration Progress    (%Epoch)   Loss   Dev/Loss     Accuracy  Dev/Accuracy'
-dev_log_template = ' '.join('{:>6.0f},{:>5.0f},{:>9.0f},{:>5.0f}/{:<5.0f} {:>7.0f}%,{:>8.6f},{:8.6f},{:12.4f},{:12.4f}'.split(','))
-log_template = ' '.join('{:>6.0f},{:>5.0f},{:>9.0f},{:>5.0f}/{:<5.0f} {:>7.0f}%,{:>8.6f},{},{:12.4f},{}'.split(','))
-os.makedirs(args.save_path, exist_ok=True)
-print(header)
+        avg_loss += loss.data[0]
+        corrects += (torch.max(logit, 1)
+                     [1].view(target.size()).data == target.data).sum()
 
-for epoch in range(args.epochs):
-    train_iter.init_epoch()
-    n_correct, n_total = 0, 0
-    for batch_idx, batch in enumerate(train_iter):
-        model.train()
-        opt.zero_grad()
-        iterations += 1
-        answer = model(batch)
-        n_correct += (torch.max(answer, 1)[1].view(batch.label.size()).data == batch.label.data).sum()
-        n_total += batch.batch_size
-        train_acc = 100. * n_correct/n_total
-        loss = criterion(answer, batch.label)
-        loss.backward()
-        opt.step()
-        if iterations % args.save_every == 0:
-            snapshot_prefix = os.path.join(args.save_path, 'snapshot')
-            snapshot_path = snapshot_prefix + '_acc_{:.4f}_loss_{:.6f}_iter_{}_model.pt'.format(train_acc, loss.data[0], iterations)
-            torch.save(model, snapshot_path)
-            for f in glob.glob(snapshot_prefix + '*'):
-                if f != snapshot_path:
-                    os.remove(f)
-        if iterations % args.dev_every == 0:
-            model.eval(); dev_iter.init_epoch()
-            n_dev_correct, dev_loss = 0, 0
-            for dev_batch_idx, dev_batch in enumerate(dev_iter):
-                 answer = model(dev_batch)
-                 n_dev_correct += (torch.max(answer, 1)[1].view(dev_batch.label.size()).data == dev_batch.label.data).sum()
-                 dev_loss = criterion(answer, dev_batch.label)
-            dev_acc = 100. * n_dev_correct / len(dev)
-            print(dev_log_template.format(time.time()-start,
-                epoch, iterations, 1+batch_idx, len(train_iter),
-                100. * (1+batch_idx) / len(train_iter), loss.data[0], dev_loss.data[0], train_acc, dev_acc))
-            if dev_acc > best_dev_acc:
-                best_dev_acc = dev_acc
-                snapshot_prefix = os.path.join(args.save_path, 'best_snapshot')
-                snapshot_path = snapshot_prefix + '_devacc_{}_devloss_{}__iter_{}_model.pt'.format(dev_acc, dev_loss.data[0], iterations)
-                torch.save(model, snapshot_path)
-                for f in glob.glob(snapshot_prefix + '*'):
-                    if f != snapshot_path:
-                        os.remove(f)
-        elif iterations % args.log_every == 0:
-            print(log_template.format(time.time()-start,
-                epoch, iterations, 1+batch_idx, len(train_iter),
-                100. * (1+batch_idx) / len(train_iter), loss.data[0], ' '*8, n_correct/n_total*100, ' '*12))
+    size = len(data_iter.dataset)
+    avg_loss = loss.data[0]/size
+    accuracy = corrects/size * 100.0
+    model.train()
+    print('\nEvaluation - loss: {:.6f}  acc: {:.4f}%({}/{}) \n'.format(avg_loss,
+                                                                       accuracy,
+                                                                       corrects,
+                                                                       size))
 
+
+def predict(text, model, text_field, label_feild):
+    assert isinstance(text, str)
+    model.eval()
+    text = text_field.tokenize(text)
+    text = text_field.preprocess(text)
+    text = [[text_field.vocab.stoi[x] for x in text]]
+    x = text_field.tensor_type(text)
+    x = autograd.Variable(x, volatile=True)
+    print(x)
+    output = model(x)
+    _, predicted = torch.max(output, 1)
+    return label_feild.vocab.itos[predicted.data[0][0]+1]
