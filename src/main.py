@@ -13,9 +13,9 @@ parser = argparse.ArgumentParser(description='CNN text classificer')
 # learning
 parser.add_argument('-lr', type=float, default=0.001, help='initial learning rate [default: 0.001]')
 parser.add_argument('-epochs', type=int, default=256, help='number of epochs for train [default: 256]')
-parser.add_argument('-batch-size', type=int, default=64, help='batch size for training [default: 64]')
-parser.add_argument('-log-interval', type=int, default=1,
-                    help='how many steps to wait before logging training status [default: 1]')
+parser.add_argument('-batch-size', type=int, default=1024, help='batch size for training [default: 1024]')
+parser.add_argument('-log-interval', type=int, default=10,
+                    help='how many steps to wait before logging training status [default: 10]')
 parser.add_argument('-test-interval', type=int, default=100,
                     help='how many steps to wait before testing [default: 100]')
 parser.add_argument('-save-interval', type=int, default=500, help='how many steps to wait before saving [default:500]')
@@ -38,7 +38,6 @@ parser.add_argument('-snapshot', type=str, default=None, help='filename of model
 parser.add_argument('-predict', type=str, default=None, help='predict the sentence given')
 parser.add_argument('-test', action='store_true', default=False, help='train or test')
 args = parser.parse_args()
-
 
 # load SST dataset
 def sst(text_field, label_field, **kargs):
@@ -66,18 +65,20 @@ def mr(text_field, label_field, **kargs):
     return train_iter, dev_iter
 
 
+args.cuda = not args.no_cuda and torch.cuda.is_available();
+
 # load data
 print("\nLoading data...")
 text_field = data.Field(lower=True)
 label_field = data.Field(sequential=False)
-train_iter, dev_iter = mr(text_field, label_field, device=-1, repeat=False)
+train_iter, dev_iter = mr(text_field, label_field, device=args.device if args.cuda else -1, repeat=False)
 # train_iter, dev_iter, test_iter = sst(text_field, label_field, device=-1, repeat=False)
 
 
 # update args and print
 args.embed_num = len(text_field.vocab)
 args.class_num = len(label_field.vocab) - 1
-args.cuda = not args.no_cuda and torch.cuda.is_available();
+
 del args.no_cuda
 args.kernel_sizes = [int(k) for k in args.kernel_sizes.split(',')]
 args.save_dir = os.path.join(args.save_dir, datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S'))

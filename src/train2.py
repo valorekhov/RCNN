@@ -18,7 +18,7 @@ def train(train_iter, dev_iter, model, args):
             feature, target = batch.text, batch.label
             feature.data.t_(), target.data.sub_(1)  # batch first, index align
             if args.cuda:
-                feature, target = feature.cuda(), feature.cuda()
+                feature, target = feature.cuda(), target.cuda()
 
             optimizer.zero_grad()
             logit = model(feature)
@@ -52,7 +52,7 @@ def eval(data_iter, model, args):
         feature, target = batch.text, batch.label
         feature.data.t_(), target.data.sub_(1)  # batch first, index align
         if args.cuda:
-            feature, target = feature.cuda(), feature.cuda()
+            feature, target = feature.cuda(), target.cuda()
 
         logit = model(feature)
         loss = F.cross_entropy(logit, target, size_average=False)
