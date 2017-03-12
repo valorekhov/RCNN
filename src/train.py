@@ -13,39 +13,49 @@ def train(train_iter, dev_iter, model, args):
 
     steps = 0
     model.train()
-    for epoch in range(1, args.epochs+1):
-        for batch in train_iter:
-            feature, target = batch.text, batch.label
-            feature.data.t_(), target.data.sub_(1)  # batch first, index align
-            if args.cuda:
-                feature, target = feature.cuda(), target.cuda()
+    if not os.path.isdir(args.snapshot_save_dir): os.makedirs(args.snapshot_save_dir)
+    with open(os.path.join(args.snapshot_save_dir, 'train.csv'), 'w') as trainF, \
+            open(os.path.join(args.snapshot_save_dir, 'test.csv'), 'w') as testF:
+        for epoch in range(1, args.epochs+1):
+            for batch in train_iter:
+                feature, target = batch.text, batch.label
+                feature.data.t_(), target.data.sub_(1)  # batch first, index align
+                if args.cuda:
+                    feature, target = feature.cuda(), target.cuda()
 
-            optimizer.zero_grad()
-            logit = model(feature)
-            loss = F.cross_entropy(logit, target)
-            loss.backward()
-            optimizer.step()
+                optimizer.zero_grad()
+                logit = model(feature)
+                loss = F.cross_entropy(logit, target)
+                loss.backward()
+                optimizer.step()
 
-            steps += 1
-            if steps % args.log_interval == 0:
-                corrects = (torch.max(logit, 1)[1].view(target.size()).data == target.data).sum()
-                accuracy = corrects/batch.batch_size * 100.0
-                sys.stdout.write(
-                    '\rBatch[{}] - loss: {:.6f}  acc: {:.4f}%({}/{})'.format(steps,
-                                                                             loss.data[0],
-                                                                             accuracy,
-                                                                             corrects,
-                                                                             batch.batch_size))
-            if steps % args.test_interval == 0:
-                eval(dev_iter, model, args)
-            if steps % args.save_interval == 0:
-                if not os.path.isdir(args.snapshot_save_dir): os.makedirs(args.snapshot_save_dir)
-                save_prefix = os.path.join(args.snapshot_save_dir, 'snapshot')
-                save_path = '{}_steps{}.pt'.format(save_prefix, steps)
-                torch.save(model, save_path)
+                steps += 1
+                if steps % args.log_interval == 0:
+                    corrects = (torch.max(logit, 1)[1].view(target.size()).data == target.data).sum()
+                    accuracy = corrects/batch.batch_size * 100.0
+
+                    sys.stdout.write(
+                        '\rBatch[{}] - loss: {:.6f}  acc: {:.4f}%({}/{})'.format(steps,
+                                                                                 loss.data[0],
+                                                                                 accuracy,
+                                                                                 corrects,
+                                                                                 batch.batch_size))
+                    trainF.write('{},{},{},{},{}\n'.format(steps, loss.data[0], accuracy, corrects, batch.batch_size))
+                    trainF.flush()
+
+                if steps % args.test_interval == 0:
+                    eval_avg_loss, eval_accuracy, eval_corrects, eval_size = eval(dev_iter, model, args)
+                    testF.write('{},{},{},{},{}\n'.format(steps, eval_avg_loss, eval_accuracy, eval_corrects, eval_size))
+                    testF.flush()
+
+                if steps % args.save_interval == 0:
+                    save_prefix = os.path.join(args.snapshot_save_dir, 'snapshot')
+                    save_path = '{}_steps{}.pt'.format(save_prefix, steps)
+                    torch.save(model, save_path)
 
 
 def eval(data_iter, model, args):
+
     model.eval()
     corrects, avg_loss = 0, 0
     for batch in data_iter:
@@ -69,7 +79,7 @@ def eval(data_iter, model, args):
                                                                        accuracy,
                                                                        corrects,
                                                                        size))
-
+    return avg_loss, accuracy, corrects, size
 
 def predict(text, model, text_field, label_feild):
     assert isinstance(text, str)
