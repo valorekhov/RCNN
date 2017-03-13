@@ -32,20 +32,20 @@ def train(train_iter, dev_iter, model, args):
                 steps += 1
                 if steps % args.log_interval == 0:
                     corrects = (torch.max(logit, 1)[1].view(target.size()).data == target.data).sum()
-                    accuracy = corrects/batch.batch_size * 100.0
+                    error = (batch.batch_size - corrects)/batch.batch_size * 100.0
 
                     sys.stdout.write(
-                        '\rBatch[{}] - loss: {:.6f}  acc: {:.4f}%({}/{})'.format(steps,
+                        '\rBatch[{}] - loss: {:.6f}  error: {:.4f}%({}/{})'.format(steps,
                                                                                  loss.data[0],
-                                                                                 accuracy,
+                                                                                 error,
                                                                                  corrects,
                                                                                  batch.batch_size))
-                    trainF.write('{},{},{},{},{}\n'.format(steps, loss.data[0], accuracy, corrects, batch.batch_size))
+                    trainF.write('{},{},{},{},{}\n'.format(steps, loss.data[0], error, corrects, batch.batch_size))
                     trainF.flush()
 
                 if steps % args.test_interval == 0:
-                    eval_avg_loss, eval_accuracy, eval_corrects, eval_size = eval(dev_iter, model, args)
-                    testF.write('{},{},{},{},{}\n'.format(steps, eval_avg_loss, eval_accuracy, eval_corrects, eval_size))
+                    eval_avg_loss, eval_error, eval_corrects, eval_size = eval(dev_iter, model, args)
+                    testF.write('{},{},{},{},{}\n'.format(steps, eval_avg_loss, eval_error, eval_corrects, eval_size))
                     testF.flush()
 
                 if steps % args.save_interval == 0:
@@ -73,13 +73,13 @@ def eval(data_iter, model, args):
 
     size = len(data_iter.dataset)
     avg_loss = loss.data[0]/size
-    accuracy = corrects/size * 100.0
+    error = (size - corrects)/size * 100.0
     model.train()
-    print('\nEvaluation - loss: {:.6f}  acc: {:.4f}%({}/{}) \n'.format(avg_loss,
-                                                                       accuracy,
+    print('\nEvaluation - loss: {:.6f}  error: {:.4f}%({}/{}) \n'.format(avg_loss,
+                                                                       error,
                                                                        corrects,
                                                                        size))
-    return avg_loss, accuracy, corrects, size
+    return avg_loss, error, corrects, size
 
 def predict(text, model, text_field, label_feild):
     assert isinstance(text, str)
