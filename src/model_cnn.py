@@ -5,10 +5,18 @@ import torch.nn.functional as F
 
 class CNN_Text(nn.Module):
 
+    '''
+    def conv_and_pool(self, x, conv):
+        c = conv(x)
+        x = F.relu(c).squeeze(3) #(N,Co,W)
+        x = F.max_pool1d(x, x.size(2)).squeeze(2)
+        return x
+    '''
+
     def __init__(self, args):
         super(CNN_Text,self).__init__()
         self.args = args
-        
+
         V = args.embed_num
         D = args.embed_dim
         C = args.class_num
@@ -29,14 +37,6 @@ class CNN_Text(nn.Module):
         '''
         self.dropout = nn.Dropout(args.dropout)
         self.fc1 = nn.Linear(len(Ks)*Co, C)
-
-    '''
-    def conv_and_pool(self, x, conv):
-        c = conv(x)
-        x = F.relu(c).squeeze(3) #(N,Co,W)
-        x = F.max_pool1d(x, x.size(2)).squeeze(2)
-        return x
-    '''
 
     def forward(self, x):
         #print(x.size())
