@@ -34,7 +34,7 @@ class RCNN_Text(nn.Module):
         self.rnn= nn.RNN(input_size=args.batch_size, hidden_size=hidden_dim_1, bidirectional=True)
         self.convolution = nn.Conv2d(Ci, Co, (3, embedding_dim))
         self.dropout = nn.Dropout(args.dropout)
-        self.fc1 = nn.Linear(3 * Co, n_classes)
+        self.fc1 = nn.Linear(Co, n_classes)
 
     def conv_and_pool(x, conv):
         c = conv(x)
@@ -43,8 +43,8 @@ class RCNN_Text(nn.Module):
         return x
 
 
-    def forward(self, x):
-        x = self.embed(x)  # (N,W,D)
+    def forward(self, x): # (Batch_Size,Len)
+        x = self.embed(x)  # (Batch_Size,Len, Num_Embed)
 
         # doc_embedding = self.embed(x)
         # l_embedding = self.embed(self.left_context)
@@ -67,9 +67,10 @@ class RCNN_Text(nn.Module):
         # model = Model(input=[document, left_context, right_context], output=output)
         # model.compile(optimizer="adadelta", loss="categorical_crossentropy", metrics=["accuracy"])
 
-        x = x.unsqueeze(1)  # (N,Ci,W,D)
-        x1 = RCNN_Text.conv_and_pool(x, self.convolution)  # (N,Co)
-        x = torch.cat(x1, 1)
+        x = x.unsqueeze(1)  # (Batch_Size,Ci,Len,Num_Embed)
+        x = RCNN_Text.conv_and_pool(x, self.convolution)  # (Batch_Size,Kernels)
 
-        x = self.dropout(x)  # (N,len(Ks)*Co)
-        return self.fc1(x)  # (N,C)
+        #x = torch.cat(x1, 1)
+
+        x = self.dropout(x)  # (Batch_size, Kernels)
+        return self.fc1(x)  # (Batch_size,Num_classes)
